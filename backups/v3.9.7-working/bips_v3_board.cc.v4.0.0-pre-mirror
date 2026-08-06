@@ -141,17 +141,6 @@ private:
         ESP_LOGI(TAG, "Turning display on");
         ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel_, true));
 
-        // Fix display orientation: 180° rotation via raw I2C commands
-        // Must be BEFORE OledDisplay constructor (raw I2C after it crashes on OTA)
-        // SH1106: 0xA1 = segment remap reverse, 0xC8 = COM scan reverse
-        {
-            uint8_t cmd_seg[] = {0xA1};  // Segment remap: reverse (flip horizontal)
-            esp_lcd_panel_io_tx_param(panel_io_, 0x00, cmd_seg, 1);
-            uint8_t cmd_com[] = {0xC8};  // COM scan direction: reverse (flip vertical)
-            esp_lcd_panel_io_tx_param(panel_io_, 0x00, cmd_com, 1);
-            ESP_LOGI(TAG, "Display orientation fixed (180° rotation)");
-        }
-
         display_ = new OledDisplay(panel_io_, panel_, DISPLAY_WIDTH, DISPLAY_HEIGHT, DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y);
     }
 
