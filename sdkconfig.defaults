@@ -77,3 +77,18 @@ CONFIG_LV_USE_WIN=n
 
 CONFIG_LV_BUILD_EXAMPLES=n
 CONFIG_LV_BUILD_DEMOS=n
+
+# BIPS V3 board selection
+CONFIG_BOARD_TYPE_BIPS_V3=y
+CONFIG_OLED_SH1106_128X64=y
+
+# OTA URL
+CONFIG_OTA_URL="http://158.160.216.45/bips-ota/ota.json"
+
+
+# Default volume (prevent speaker heat)
+CONFIG_OLED_SH1106_128X64=y
+
+
+# Wake word: AFE with pre-trained WakeNet model
+CONFIG_USE_AFE_WAKE_WORD=y

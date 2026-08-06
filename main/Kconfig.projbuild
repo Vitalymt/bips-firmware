@@ -382,6 +382,9 @@ choice BOARD_TYPE
     config BOARD_TYPE_XINGZHI_CUBE_0_96OLED_WIFI
         bool "Nologo Xingzhi Cube 0.96-inch OLED Wi-Fi (无名科技星智)"
         depends on IDF_TARGET_ESP32S3
+    config BOARD_TYPE_BIPS_V3
+        bool "BIPS V3 - SH1106 OLED Wi-Fi (БИПС)"
+        depends on IDF_TARGET_ESP32S3
     config BOARD_TYPE_XINGZHI_CUBE_1_54TFT_ML307
         bool "Nologo Xingzhi Cube 1.54-inch TFT ML307 (无名科技星智)"
         depends on IDF_TARGET_ESP32S3

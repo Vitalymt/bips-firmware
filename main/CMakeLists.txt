@@ -667,6 +667,10 @@ elseif(CONFIG_BOARD_TYPE_XINGZHI_CUBE_0_96OLED_WIFI)
     set(BOARD_DIR "nologo/xingzhi-cube-0.96oled-wifi")
     set(BUILTIN_TEXT_FONT font_noto_sans_basic_14_1)
     set(BUILTIN_ICON_FONT font_material_symbols_14_1)
+elseif(CONFIG_BOARD_TYPE_BIPS_V3)
+    set(BOARD_DIR "bips-v3")
+    set(BUILTIN_TEXT_FONT font_noto_sans_basic_14_1)
+    set(BUILTIN_ICON_FONT font_material_symbols_14_1)
 elseif(CONFIG_BOARD_TYPE_XINGZHI_CUBE_0_96OLED_ML307)
     set(BOARD_DIR "nologo/xingzhi-cube-0.96oled-ml307")
     set(BUILTIN_TEXT_FONT font_noto_sans_basic_14_1)
@@ -1055,6 +1059,7 @@ idf_component_register(SRCS ${SOURCES}
                     PRIV_REQUIRES
                         esp_pm
                         esp_psram
+                        esp_http_client
                         esp_netif
                         esp_eth
                         esp_driver_gpio
