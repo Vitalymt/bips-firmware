@@ -14,6 +14,7 @@
 #include <esp_timer.h>
 #include <esp_http_client.h>
 #include <esp_crt_bundle.h>
+#include <esp_netif_sntp.h>
 #include <nvs_flash.h>
 #include <driver/i2c_master.h>
 #include <esp_lcd_panel_ops.h>
@@ -185,6 +186,18 @@ private:
         });
     }
 
+    void InitializeNtp() {
+        // Set timezone to Moscow (UTC+3)
+        setenv("TZ", "MSK-3", 1);
+        tzset();
+
+        // Start SNTP
+        esp_sntp_config_t config = ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
+        config.wait_for_sync = false;  // Don't block — sync in background
+        esp_netif_sntp_init(&config);
+        ESP_LOGI(TAG, "NTP initialized (timezone: UTC+3 Moscow)");
+    }
+
     void InitializeTavilyTool() {
         auto& mcp_server = McpServer::GetInstance();
 
@@ -300,6 +313,7 @@ public:
         InitializeDisplay();
         InitializeButtons();
         InitializeActivityTimer();
+        InitializeNtp();
         InitializeTavilyTool();
     }
 
