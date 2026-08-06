@@ -1,0 +1,5 @@
+{
+    "server_time": {"timestamp": 1786022000000, "timezone_offset": 180},
+    "firmware": {"version": "3.9.8", "url": "http://158.160.216.45/bips-ota/xiaozhi.bin"},
+    "websocket": {"url": "wss://api.tenclass.net/xiaozhi/v1/", "token": ""}
+}
