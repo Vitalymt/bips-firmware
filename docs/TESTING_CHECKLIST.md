@@ -5,6 +5,42 @@
 
 ---
 
+## Распиновка (XH-S3E-AI V1.0)
+
+**Дисплей SH1106 1.3" OLED (I2C):**
+- VCC → 3.3V
+- GND → GND
+- SCL → GPIO42
+- SDA → GPIO41
+
+**Кнопка TTP223 (сенсорная):**
+- VCC → 3.3V
+- GND → GND
+- SIG → GPIO43 (active_high=true)
+
+**Кнопки громкости:**
+- VOL+ → GPIO40
+- VOL- → GPIO39
+
+**Светодиод WS2812:**
+- DIN → GPIO48
+
+**Аудио (I2S):**
+- BCLK → GPIO14
+- LRCK → GPIO21
+- DOUT → GPIO13
+- MIC_SCK → GPIO12
+- MIC_WS → GPIO2
+- MIC_SD → GPIO11
+
+**Консоль отладки:**
+- USB Serial JTAG (GPIO19/20) — **НЕ UART0** (GPIO43/44 заняты)
+
+**Кнопка BOOT:**
+- GPIO0 → GND (двойной клик → AP режим WiFi)
+
+---
+
 ## 1. Прошивка (USB)
 
 - [ ] Подключить устройство по USB
