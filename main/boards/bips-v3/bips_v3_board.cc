@@ -56,8 +56,21 @@ private:
                 self->display_->SetPowerSaveMode(true);
             }
         }
-        // Deep sleep disabled — GPIO43 (touch) is not RTC pin, can't wake from deep sleep
-        // Device stays in idle mode with display off, button still responsive
+
+        if (self->idle_seconds_ >= DEEP_SLEEP_SECONDS) {
+            ESP_LOGI(TAG, "Entering light sleep after %ds idle", DEEP_SLEEP_SECONDS);
+            // Configure GPIO43 (touch button) as wakeup source
+            // ext0: wake when GPIO43 is HIGH (active_high=true)
+            esp_sleep_enable_ext0_wakeup(GPIO_NUM_43, 1);
+            esp_light_sleep_start();
+            // Woke up from light sleep — reset idle counter and wake display
+            ESP_LOGI(TAG, "Woke from light sleep");
+            self->idle_seconds_ = 0;
+            self->display_off_ = false;
+            if (self->display_) {
+                self->display_->SetPowerSaveMode(false);
+            }
+        }
     }
 
     void ResetActivity() {
