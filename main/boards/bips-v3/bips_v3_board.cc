@@ -43,6 +43,7 @@ private:
     esp_timer_handle_t activity_timer_ = nullptr;
     int idle_seconds_ = 0;
     bool display_off_ = false;
+    int64_t last_button_press_ms_ = 0;  // Debounce: ignore rapid presses
 
     static void activityTimerCallback(void* arg) {
         auto* self = static_cast<BipsV3*>(arg);
@@ -165,6 +166,15 @@ private:
         });
 
         touch_button_.OnClick([this]() {
+            // Debounce: ignore if less than 2 seconds since last press
+            int64_t now_ms = esp_timer_get_time() / 1000;
+            if (now_ms - last_button_press_ms_ < 2000) {
+                ESP_LOGI(TAG, "Touch click IGNORED (debounce, %lld ms since last)",
+                         now_ms - last_button_press_ms_);
+                return;
+            }
+            last_button_press_ms_ = now_ms;
+
             ResetActivity();
             auto& app = Application::GetInstance();
             if (app.GetDeviceState() == kDeviceStateStarting) {
