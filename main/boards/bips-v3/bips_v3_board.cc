@@ -323,9 +323,7 @@ public:
     }
 
     virtual void SetPowerSaveLevel(PowerSaveLevel level) override {
-        if (level != PowerSaveLevel::LOW_POWER) {
-            ResetActivity();
-        }
+        // Don't reset activity timer here — audio service calls this frequently
         WifiBoard::SetPowerSaveLevel(level);
     }
 };
