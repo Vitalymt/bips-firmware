@@ -168,6 +168,23 @@ void OledDisplay::SetChatMessage(const char* role, const char* content) {
     }
 }
 
+void OledDisplay::SetPowerSaveMode(bool on) {
+    DisplayLockGuard lock(this);
+    if (on) {
+        // Sleep mode: hide everything except emotion (sleepy face)
+        if (top_bar_) lv_obj_add_flag(top_bar_, LV_OBJ_FLAG_HIDDEN);
+        if (status_bar_) lv_obj_add_flag(status_bar_, LV_OBJ_FLAG_HIDDEN);
+        if (content_right_) lv_obj_add_flag(content_right_, LV_OBJ_FLAG_HIDDEN);
+        SetEmotion("sleepy");
+    } else {
+        // Wake up: show everything back
+        if (top_bar_) lv_obj_remove_flag(top_bar_, LV_OBJ_FLAG_HIDDEN);
+        if (status_bar_) lv_obj_remove_flag(status_bar_, LV_OBJ_FLAG_HIDDEN);
+        if (content_right_) lv_obj_remove_flag(content_right_, LV_OBJ_FLAG_HIDDEN);
+        SetEmotion("neutral");
+    }
+}
+
 void OledDisplay::SetupUI_128x64() {
     DisplayLockGuard lock(this);
 
