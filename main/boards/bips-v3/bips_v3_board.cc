@@ -49,13 +49,7 @@ private:
         auto* self = static_cast<BipsV3*>(arg);
         self->idle_seconds_++;
 
-        if (self->idle_seconds_ == DISPLAY_OFF_SECONDS && !self->display_off_) {
-            ESP_LOGI(TAG, "Display off after %ds idle", DISPLAY_OFF_SECONDS);
-            self->display_off_ = true;
-            if (self->display_) {
-                self->display_->SetPowerSaveMode(true);
-            }
-        }
+        // No display power save — screen always on
 
         if (self->idle_seconds_ >= DEEP_SLEEP_SECONDS) {
             ESP_LOGI(TAG, "Entering light sleep after %ds idle", DEEP_SLEEP_SECONDS);
@@ -63,13 +57,9 @@ private:
             // ext0: wake when GPIO43 is HIGH (active_high=true)
             esp_sleep_enable_ext0_wakeup(GPIO_NUM_43, 1);
             esp_light_sleep_start();
-            // Woke up from light sleep — reset idle counter and wake display
+            // Woke up from light sleep — reset idle counter
             ESP_LOGI(TAG, "Woke from light sleep");
             self->idle_seconds_ = 0;
-            self->display_off_ = false;
-            if (self->display_) {
-                self->display_->SetPowerSaveMode(false);
-            }
         }
     }
 
