@@ -1,20 +1,29 @@
-tmp/
-components/
-managed_components/
+# Build artifacts
 build/
-dist/
-.vscode/
-.devcontainer/
+managed_components/
 sdkconfig.old
-sdkconfig
-dependencies.lock
-.env
-releases/
-main/assets/lang_config.h
-main/mmap_generate_emoji.h
-.DS_Store
-.cache
-*.pyc
 *.bin
-mmap_generate_*.h
-.clangd
+*.elf
+*.map
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Backup files
+backups/
+*.bak
+*.backup
+
+# Temporary files
+*.tmp
+*.log

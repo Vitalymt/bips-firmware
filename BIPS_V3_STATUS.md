@@ -1,64 +1,103 @@
-# BIPS v3 — Status & Next Steps (2026-08-07 02:30)
+# BIPS v3 Firmware Status
 
-## Текущая версия: v4.0.3 (на OTA)
+## Current Version: v4.0.4
 
-## Что работает ✅
-- Голосовой ассистент через xiaozhi.me
-- Touch кнопка (GPIO43, TTP223, active_high=true, ToggleChatState)
-- Boot кнопка (GPIO0, WiFi config / toggle chat)
-- Двойной клик BOOT = WiFi reset
-- Динамик, микрофон, WiFi
-- NTP синхронизация времени (UTC+3 Москва)
-- Tavily web search MCP tool (self.web_search)
-- LED (GPIO48)
+**Last updated:** 2026-08-07
 
-## Что НЕ работает ❌
-- **Дисплей перевёрнут** — SH1106 driver init ставит 180° (0xA1+0xC8).
-  mirror(false,false) отправляет 0xA0+0xC0, но LVGL port вызывает mirror()
-  ДО создания OledDisplay, а потом LVGL может переопределить.
-  Нужно проверить: MIRROR_X=false, MIRROR_Y=false — тестировать на устройстве.
-- **Экран не гаснет** — Activity timer ресетится из-за SetPowerSaveLevel().
-  Нужно убрать ResetActivity() из SetPowerSaveLevel() — только кнопки должны ресетить.
-- **Tavily не протестирован** — нужен API ключ через WiFi config (Advanced tab)
+## What Works
 
-## Ключевые файлы
-- Board: ~/projects/bips-v3-firmware/main/boards/bips-v3/bips_v3_board.cc
-- Config: ~/projects/bips-v3-firmware/main/boards/bips-v3/config.h
-- SDK: ~/projects/bips-v3-firmware/sdkconfig
-- SH1106 driver: managed_components/tny-robotics__sh1106-esp-idf/esp_lcd_panel_sh1106.c
-  - mirror_x ИСПРАВЛЕН (был 0xA6/0xA7 вместо 0xA0/0xA1)
-  - init ставит 0xA1+0xC8 по умолчанию
-- WiFi config HTML: managed_components/78__esp-wifi-connect/assets/wifi_configuration.html
-  - Tavily API key поле добавлено в Advanced tab
-- WiFi config backend: managed_components/78__esp-wifi-connect/wifi_configuration_ap.cc
-  - NVS read/write для tavily_api_key добавлен
-- OTA server: /home/openclaw/bips-ota/ (server.py + ota.json + xiaozhi.bin)
-- OTA systemd: ~/.config/systemd/user/bips-ota-server.service
+- ✅ Display (SH1106 1.3" OLED, 180° rotation)
+- ✅ Touch button (GPIO43, TTP223, active_high)
+- ✅ Boot button (GPIO0)
+- ✅ Speaker (I2S, 16kHz)
+- ✅ Microphone (I2S)
+- ✅ LED (GPIO48)
+- ✅ WiFi connectivity
+- ✅ OTA updates (GitHub-based)
+- ✅ NTP time sync (pool.ntp.org, UTC+3 Moscow)
+- ✅ Tavily web search (needs API key)
+- ✅ Activity-based power save (60s display off, 300s deep sleep)
+- ✅ Russian language
 
-## Бэкапы
-- backups/v3.9.7-working/ — стабильная база (touch fix, без display fix)
-- backups/v3.9.8-FINAL/ — display fix (крашится при OTA)
-- backups/v3.9.6-working-display/ — raw I2C display fix
+## Known Issues
 
-## Git commits (последние)
-- v4.0.3 attempt 2: MIRROR_X=false MIRROR_Y=false
-- Fix: PROJECT_VER must match OTA version for updates to work
-- v4.0.3: Fix SH1106 driver mirror bug + MIRROR_X=true
-- v4.0.2: NTP time sync + display mirror fix
-- v4.0.1: display mirror fix (180° rotation via raw I2C)
-- v4.0.0: Tavily web search + activity-based power save
+- ⚠️ Display orientation needs testing (v4.0.4 changes)
+- ⚠️ Power save timer needs testing (removed ResetActivity from SetPowerSaveLevel)
+- ⚠️ NTP sync delay on cold boot (5-30 seconds)
+- ⚠️ Tavily API key not configured (user needs to set via WiFi config)
 
-## Следующие шаги (приоритет)
-1. **Display orientation** — тестировать MIRROR_X=false, MIRROR_Y=false на устройстве
-   - Если не поможет: попробовать MIRROR_X=true, MIRROR_Y=false
-   - Если не поможет: попробовать MIRROR_X=false, MIRROR_Y=true
-   - Если не поможет: нужно разобраться с LVGL port (esp_lvgl_port_disp.c)
-2. **Power save** — убрать ResetActivity() из SetPowerSaveLevel(), только кнопки
-3. **Tavily** — протестировать с реальным API ключом
-4. **Динамик бубнит внутрь** — отверстия слишком маленькие, нужен звуковой туннель или щель
+## Hardware
 
-## Важно
-- **НЕ включать blank_nvs.bin** в flash пакет!
-- **PROJECT_VER** должен совпадать с версией в ota.json!
-- Raw I2C ПОСЛЕ OledDisplay крашит OTA. ПЕРЕД — безопасно.
-- SH1106 mirror_x баг: использует 0xA6/0xA7 (INVERT) вместо 0xA0/0xA1 (SEGMENT REMAP) — ИСПРАВЛЕН в драйвере.
+- **Board:** XH-S3E-AI V1.0
+- **MCU:** ESP32-S3 N16R8 (16MB flash, 8MB PSRAM)
+- **Display:** SH1106 1.3" OLED (I2C, 128x64)
+- **Audio:** 16kHz output, 16kHz input
+- **Buttons:** Boot (GPIO0), Touch (GPIO43)
+- **LED:** GPIO48
+- **Pins:** SDA=GPIO41, SCL=GPIO42, TOUCH=GPIO43
+
+## OTA Configuration
+
+- **URL:** `https://raw.githubusercontent.com/USER/bips-firmware/bips-v3/ota.json`
+- **Version:** 4.0.4
+- **Binary:** `https://github.com/USER/bips-firmware/releases/download/bips-v3/v4.0.4/xiaozhi.bin`
+
+## Build
+
+```bash
+cd ~/projects/bips-v3-firmware
+source ~/esp-idf/export.sh
+idf.py build
+```
+
+## Flash (USB)
+
+```bash
+esptool.py --chip esp32s3 -b 460800 write-flash \
+    0x0 build/bootloader/bootloader.bin \
+    0x8000 build/partition_table/partition-table.bin \
+    0xd000 build/ota_data_initial.bin \
+    0x20000 build/xiaozhi.bin \
+    0x800000 build/generated_assets.bin
+```
+
+## Deploy to OTA
+
+```bash
+# 1. Build
+idf.py build
+
+# 2. Create GitHub release with xiaozhi.bin as asset
+
+# 3. Update ota.json with new version and URL
+
+# 4. Commit and push
+git add ota.json
+git commit -m "OTA: v4.0.5"
+git push origin bips-v3
+```
+
+## Recent Changes
+
+### v4.0.4 (2026-08-07)
+- Fixed display orientation (MIRROR_X=true, MIRROR_Y=true)
+- Reverted SH1106 init to original 0xA1+0xC8
+- Fixed power save timer (removed ResetActivity from SetPowerSaveLevel)
+- Synced PROJECT_VER with OTA version
+- Added NTP sync via pool.ntp.org
+
+### v4.0.3 (2026-08-07)
+- Added Tavily web search MCP tool
+- Added activity-based power save (60s display off, 300s deep sleep)
+- Added NTP time sync (UTC+3 Moscow)
+
+### v3.9.7 (2026-08-07)
+- Fixed touch button (active_high=true for TTP223)
+- Stable baseline version
+
+## Next Steps
+
+1. Test v4.0.4 display orientation
+2. Test power save timer
+3. Configure Tavily API key
+4. Deploy to customer
