@@ -17,9 +17,9 @@
 ### URL обновлений
 
 ```
-BIPS v1: https://raw.githubusercontent.com/USER/bips-firmware/bips-v1/ota.json
-BIPS v2: https://raw.githubusercontent.com/USER/bips-firmware/bips-v2/ota.json
-BIPS v3: https://raw.githubusercontent.com/USER/bips-firmware/bips-v3/ota.json
+BIPS v1: https://raw.githubusercontent.com/Vitalymt/bips-firmware/bips-v1/ota.json
+BIPS v2: https://raw.githubusercontent.com/Vitalymt/bips-firmware/bips-v2/ota.json
+BIPS v3: https://raw.githubusercontent.com/Vitalymt/bips-firmware/bips-v3/ota.json
 ```
 
 ### Как работает OTA
@@ -45,7 +45,7 @@ BIPS v3: https://raw.githubusercontent.com/USER/bips-firmware/bips-v3/ota.json
     },
     "firmware": {
         "version": "4.0.4",
-        "url": "https://github.com/USER/bips-firmware/releases/download/bips-v3/v4.0.4/xiaozhi.bin"
+        "url": "https://github.com/Vitalymt/bips-firmware/releases/download/bips-v3/v4.0.4/xiaozhi.bin"
     }
 }
 ```
@@ -62,7 +62,7 @@ BIPS v3: https://raw.githubusercontent.com/USER/bips-firmware/bips-v3/ota.json
 
 ```bash
 # 1. Клонировать репозиторий
-git clone https://github.com/USER/bips-firmware.git
+git clone https://github.com/Vitalymt/bips-firmware.git
 cd bips-firmware
 
 # 2. Переключиться на ветку устройства
@@ -147,7 +147,7 @@ cat > ota.json << EOF
     "server_time": {"timestamp": $(date +%s)000, "timezone_offset": 180},
     "firmware": {
         "version": "4.0.5",
-        "url": "https://github.com/USER/bips-firmware/releases/download/bips-v3/v4.0.5/xiaozhi.bin"
+        "url": "https://github.com/Vitalymt/bips-firmware/releases/download/bips-v3/v4.0.5/xiaozhi.bin"
     }
 }
 EOF
@@ -161,10 +161,10 @@ git push origin bips-v3
 
 ```bash
 # Проверить что ota.json доступен
-curl https://raw.githubusercontent.com/USER/bips-firmware/bips-v3/ota.json
+curl https://raw.githubusercontent.com/Vitalymt/bips-firmware/bips-v3/ota.json
 
 # Проверить что бинарник доступен
-curl -I https://github.com/USER/bips-firmware/releases/download/bips-v3/v4.0.5/xiaozhi.bin
+curl -I https://github.com/Vitalymt/bips-firmware/releases/download/bips-v3/v4.0.5/xiaozhi.bin
 ```
 
 ## Структура репозитория

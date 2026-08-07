@@ -2,6 +2,6 @@
     "server_time": {"timestamp": 1786032000000, "timezone_offset": 180},
     "firmware": {
         "version": "4.0.4",
-        "url": "https://github.com/USER/bips-firmware/releases/download/bips-v3/v4.0.4/xiaozhi.bin"
+        "url": "https://github.com/Vitalymt/bips-firmware/releases/download/bips-v3/v4.0.4/xiaozhi.bin"
     }
 }
