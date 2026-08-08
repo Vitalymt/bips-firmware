@@ -43,6 +43,7 @@ private:
     esp_timer_handle_t activity_timer_ = nullptr;
     int idle_seconds_ = 0;
     bool display_off_ = false;
+    bool sleep_requested_ = false;
     int64_t last_button_press_ms_ = 0;  // Debounce: ignore rapid presses
 
     static void activityTimerCallback(void* arg) {
@@ -57,16 +58,34 @@ private:
             }
         }
 
-        if (self->idle_seconds_ >= DEEP_SLEEP_SECONDS) {
-            ESP_LOGI(TAG, "Entering light sleep after %ds idle", DEEP_SLEEP_SECONDS);
-            esp_sleep_enable_ext0_wakeup(GPIO_NUM_43, 1);
-            esp_light_sleep_start();
-            ESP_LOGI(TAG, "Woke from light sleep");
-            self->idle_seconds_ = 0;
-            self->display_off_ = false;
-            if (self->display_) {
-                self->display_->SetPowerSaveMode(false);
-            }
+        if (self->idle_seconds_ >= DEEP_SLEEP_SECONDS && !self->sleep_requested_) {
+            ESP_LOGI(TAG, "Requesting light sleep after %ds idle", DEEP_SLEEP_SECONDS);
+            self->sleep_requested_ = true;
+        }
+    }
+
+    // Called from dedicated task to enter light sleep safely
+    void EnterLightSleepIfIdle() {
+        if (!sleep_requested_) return;
+        sleep_requested_ = false;
+
+        ESP_LOGI(TAG, "Entering light sleep (idle %ds)", idle_seconds_);
+        esp_sleep_enable_ext0_wakeup(GPIO_NUM_43, 1);
+        esp_err_t err = esp_light_sleep_start();
+        ESP_LOGI(TAG, "Woke from light sleep (err=%s)", esp_err_to_name(err));
+
+        idle_seconds_ = 0;
+        display_off_ = false;
+        if (display_) {
+            display_->SetPowerSaveMode(false);
+        }
+    }
+
+    static void sleepTask(void* arg) {
+        auto* self = static_cast<BipsV3*>(arg);
+        while (true) {
+            vTaskDelay(pdMS_TO_TICKS(500));
+            self->EnterLightSleepIfIdle();
         }
     }
 
@@ -88,6 +107,10 @@ private:
         timer_args.name = "activity_timer";
         ESP_ERROR_CHECK(esp_timer_create(&timer_args, &activity_timer_));
         ESP_ERROR_CHECK(esp_timer_start_periodic(activity_timer_, 1000000)); // 1 second
+
+        // Dedicated task for light sleep — cannot call esp_light_sleep_start()
+        // from timer callback because it blocks the timer task
+        xTaskCreate(sleepTask, "sleep_task", 2048, this, 5, nullptr);
     }
 
     void InitializeDisplayI2c() {
