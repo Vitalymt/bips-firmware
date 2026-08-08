@@ -239,6 +239,14 @@ private:
             app.ToggleChatState();
         });
 
+        // Double-click touch = force stop (unstuck from listening/speaking)
+        touch_button_.OnDoubleClick([this]() {
+            ESP_LOGI(TAG, "Touch double-click - force stop");
+            ResetActivity();
+            auto& app = Application::GetInstance();
+            app.AbortSpeaking(kAbortReasonNone);
+        });
+
         volume_up_button_.OnClick([this]() {
             ResetActivity();
             auto codec = GetAudioCodec();
