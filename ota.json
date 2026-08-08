@@ -1,8 +1,8 @@
 {
-    "server_time": {"timestamp": 1754680800000, "timezone_offset": 180},
+    "server_time": {"timestamp": 1754681700000, "timezone_offset": 180},
     "firmware": {
         "version": "4.1.2",
-        "url": "https://github.com/Vitalymt/bips-firmware/releases/download/bips-v3/v4.1.2/xiaozhi.bin"
+        "url": "http://158.160.216.45/bips-ota/xiaozhi.bin"
     },
     "websocket": {
         "url": "wss://api.tenclass.net/xiaozhi/v1/",
