@@ -66,12 +66,35 @@ if OTA_JSON.exists():
 else:
     check("ota.json exists", False, "file not found")
 
-# 2. Check ota.bin exists and is recent
+# 2. Check ota.bin exists, is ESP32-S3, and has correct version
 print("\n2. OTA binary:")
+bin_ver = None
 if OTA_BIN.exists():
     size = OTA_BIN.stat().st_size
     check(f"ota.bin exists ({size:,} bytes)", size > 100_000,
           f"file too small: {size}")
+    with open(OTA_BIN, "rb") as f:
+        header = f.read(24)
+        f.seek(0)
+        all_data = f.read()
+    magic = header[0]
+    chip_id = int.from_bytes(header[12:14], "little")
+    check("Magic byte is 0xE9 (ESP32 image)", magic == 0xE9,
+          f"got 0x{magic:02x}")
+    check("Chip ID is ESP32-S3 (0x0009)", chip_id == 0x0009,
+          f"got 0x{chip_id:04x}")
+    # Version string is at offset 48 (after image header), null-terminated
+    # That's inside the first segment (app_description)
+    try:
+        raw = all_data[48:80].split(b"\x00")[0].decode("ascii")
+        if raw and raw[0].isdigit():
+            bin_ver = raw
+            check(f"Binary embedded version: {bin_ver}", True)
+        else:
+            warn("Could not read version from binary",
+                 f"offset 48 raw: {repr(raw[:20])}")
+    except Exception as e:
+        warn("Could not read version from binary", str(e))
 else:
     check("ota.bin exists", False, "file not found")
 
@@ -89,9 +112,17 @@ if cmake_file.exists():
 if "firmware" in data:
     ota_ver = data["firmware"]["version"]
 if cmake_ver and ota_ver:
-    check(f"OTA version matches CMake ({ota_ver} == {cmake_ver})",
+    check(f"OTA JSON version matches CMake ({ota_ver} == {cmake_ver})",
           ota_ver == cmake_ver,
           f"OTA={ota_ver}, CMake={cmake_ver}")
+if cmake_ver and bin_ver:
+    check(f"BINARY version matches CMake ({bin_ver} == {cmake_ver})",
+          bin_ver == cmake_ver,
+          f"Binary={bin_ver}, CMake={cmake_ver} — REBUILD needed!")
+if ota_ver and bin_ver:
+    check(f"BINARY version matches OTA JSON ({bin_ver} == {ota_ver})",
+          bin_ver == ota_ver,
+          f"Binary={bin_ver}, OTA JSON={ota_ver}")
 
 # 4. Run build
 print("\n4. Build check:")
