@@ -146,14 +146,24 @@ bool OledDisplay::Lock(int timeout_ms) { return lvgl_port_lock(timeout_ms); }
 void OledDisplay::Unlock() { lvgl_port_unlock(); }
 
 void OledDisplay::SetChatMessage(const char* role, const char* content) {
-    DisplayLockGuard lock(this);
+    if (!Lock(100)) {
+        ESP_LOGW(TAG, "SetChatMessage: lock timeout, skipping update");
+        return;
+    }
     if (chat_message_label_ == nullptr) {
+        Unlock();
         return;
     }
 
     // Replace all newlines with spaces
     std::string content_str = content;
     std::replace(content_str.begin(), content_str.end(), '\n', ' ');
+
+    // Truncate long text to prevent slow I2C flush on small OLED
+    if (content_str.length() > 200) {
+        content_str = content_str.substr(0, 200);
+        content_str += "...";
+    }
 
     lv_anim_delete(chat_message_label_, nullptr);
     if (content_right_ == nullptr) {
@@ -166,10 +176,14 @@ void OledDisplay::SetChatMessage(const char* role, const char* content) {
             lv_obj_remove_flag(content_right_, LV_OBJ_FLAG_HIDDEN);
         }
     }
+    Unlock();
 }
 
 void OledDisplay::SetPowerSaveMode(bool on) {
-    DisplayLockGuard lock(this);
+    if (!Lock(100)) {
+        ESP_LOGW(TAG, "SetPowerSaveMode: lock timeout, skipping");
+        return;
+    }
     if (on) {
         // Sleep mode: hide everything except emotion (sleepy face)
         if (top_bar_) lv_obj_add_flag(top_bar_, LV_OBJ_FLAG_HIDDEN);
@@ -183,6 +197,7 @@ void OledDisplay::SetPowerSaveMode(bool on) {
         if (content_right_) lv_obj_remove_flag(content_right_, LV_OBJ_FLAG_HIDDEN);
         SetEmotion("neutral");
     }
+    Unlock();
 }
 
 void OledDisplay::SetupUI_128x64() {

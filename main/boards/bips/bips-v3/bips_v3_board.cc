@@ -227,6 +227,9 @@ private:
             codec->SetOutputVolume(volume);
             GetDisplay()->ShowNotification(Lang::Strings::VOLUME + std::to_string(volume));
         });
+        volume_up_button_.OnPressDown([this]() {
+            ResetActivity();
+        });
         volume_up_button_.OnLongPress([this]() {
             ResetActivity();
             GetAudioCodec()->SetOutputVolume(100);
@@ -240,6 +243,9 @@ private:
             if (volume < 0) volume = 0;
             codec->SetOutputVolume(volume);
             GetDisplay()->ShowNotification(Lang::Strings::VOLUME + std::to_string(volume));
+        });
+        volume_down_button_.OnPressDown([this]() {
+            ResetActivity();
         });
         volume_down_button_.OnLongPress([this]() {
             ResetActivity();
@@ -398,7 +404,9 @@ public:
     }
 
     virtual void SetPowerSaveLevel(PowerSaveLevel level) override {
-        // Don't reset activity timer here — audio service calls this frequently
+        if (level == PowerSaveLevel::PERFORMANCE) {
+            ResetActivity();
+        }
         WifiBoard::SetPowerSaveLevel(level);
     }
 };

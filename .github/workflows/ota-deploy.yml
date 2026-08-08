@@ -1,0 +1,97 @@
+# OTA Deploy — manual trigger to deploy firmware to OTA server
+# Requires: DEPLOY_SSH_KEY secret with SSH key for root@158.160.216.45
+
+name: OTA Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to deploy (e.g. 4.1.6)'
+        required: true
+      force:
+        description: 'Skip backup (emergency deploy)'
+        required: false
+        default: 'false'
+        type: boolean
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download built artifact
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          workflow: ota-check.yml
+          workflow_conclusion: success
+          name: bips-firmware-*
+          path: ./artifact/
+          search_artifacts: true
+
+      - name: Verify artifact matches version
+        run: |
+          BIN_VER=$(python3 -c "
+          with open('./artifact/xiaozhi.bin', 'rb') as f:
+              f.seek(48)
+              raw = f.read(32).split(b'\x00')[0].decode('ascii')
+              print(raw)
+          ")
+          if [ "$BIN_VER" != "${{ github.event.inputs.version }}" ]; then
+            echo "::error::Artifact version ($BIN_VER) doesn't match requested (${{ github.event.inputs.version }})"
+            exit 1
+          fi
+          echo "✅ Artifact version verified: $BIN_VER"
+
+      - name: Backup current firmware on server
+        if: ${{ github.event.inputs.force != 'true' }}
+        run: |
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > deploy_key
+          chmod 600 deploy_key
+          ssh -i deploy_key -o StrictHostKeyChecking=no root@158.160.216.45 \
+            "mkdir -p /home/openclaw/bips-ota/backups && \
+             cp /home/openclaw/bips-ota/xiaozhi.bin /home/openclaw/bips-ota/backups/xiaozhi-$(cat /home/openclaw/bips-ota/ota.json | python3 -c 'import sys,json;print(json.load(sys.stdin)[\"firmware\"][\"version\"])').bin 2>/dev/null; \
+             ls -la /home/openclaw/bips-ota/backups/"
+
+      - name: Deploy to OTA server
+        run: |
+          scp -i deploy_key -o StrictHostKeyChecking=no \
+            ./artifact/xiaozhi.bin root@158.160.216.45:/home/openclaw/bips-ota/xiaozhi.bin
+
+          # Update ota.json version
+          ssh -i deploy_key -o StrictHostKeyChecking=no root@158.160.216.45 \
+            "python3 -c \"
+          import json
+          p = '/home/openclaw/bips-ota/ota.json'
+          d = json.load(open(p))
+          d['firmware']['version'] = '${{ github.event.inputs.version }}'
+          json.dump(d, open(p, 'w'), indent=2, ensure_ascii=False)
+          print('ota.json updated to ${{ github.event.inputs.version }}')
+          \""
+
+      - name: Verify deployment
+        run: |
+          # Wait a moment for nginx to pick up
+          sleep 2
+
+          # Check version on server
+          REMOTE_VER=$(ssh -i deploy_key -o StrictHostKeyChecking=no root@158.160.216.45 \
+            "python3 -c \"import json; print(json.load(open('/home/openclaw/bips-ota/ota.json'))['firmware']['version'])\"")
+          if [ "$REMOTE_VER" != "${{ github.event.inputs.version }}" ]; then
+            echo "::error::Server version ($REMOTE_VER) doesn't match (${{ github.event.inputs.version }})"
+            exit 1
+          fi
+
+          # Check binary accessible via HTTP
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://158.160.216.45/bips-ota/xiaozhi.bin)
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::Binary not accessible via HTTP (status: $HTTP_CODE)"
+            exit 1
+          fi
+          echo "✅ Deployed and verified: $REMOTE_VER"
+
+      - name: Cleanup
+        if: always()
+        run: rm -f deploy_key

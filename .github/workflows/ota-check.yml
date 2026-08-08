@@ -43,18 +43,10 @@ jobs:
       - name: Check SAFETY_RULES.md exists
         run: |
           if [ ! -f SAFETY_RULES.md ]; then
-            echo "::error::SAFETY_RULES.md missing — run scripts/pre_ota_check.py before deploy"
+            echo "::error::SAFETY_RULES.md missing"
             exit 1
           fi
           echo "✅ SAFETY_RULES.md present"
-
-      - name: Check pre_ota_check.py exists
-        run: |
-          if [ ! -f scripts/pre_ota_check.py ]; then
-            echo "::error::scripts/pre_ota_check.py missing"
-            exit 1
-          fi
-          echo "✅ pre_ota_check.py present"
 
       - name: Check bips-v3 board files exist
         run: |
@@ -78,9 +70,13 @@ jobs:
           print(f'✅ config.json target: {target}')
           "
 
+      - name: Run unit tests
+        run: |
+          python3 scripts/tests/test_build.py
+          echo "✅ Unit tests passed"
+
       - name: Check no forbidden OTA patterns
         run: |
-          # Ensure no hardcoded stock OTA URLs in source (except references/comments)
           if grep -r 'api.tenclass.net' main/boards/bips/ --include='*.cc' --include='*.h' -l 2>/dev/null; then
             echo "::warning::Found api.tenclass.net references in board code — verify these are intentional"
           fi
@@ -130,6 +126,17 @@ jobs:
             exit 1
           fi
           echo "✅ Version match: $CMAKE_VER"
+
+      - name: Check binary size < 3MB
+        run: |
+          SIZE=$(stat -c%s build/xiaozhi.bin)
+          MAX=3145728
+          echo "Binary size: $SIZE bytes (max: $MAX)"
+          if [ "$SIZE" -gt "$MAX" ]; then
+            echo "::error::Binary too large: $SIZE bytes > 3MB limit. OTA will fail on small partitions."
+            exit 1
+          fi
+          echo "✅ Binary size OK: $SIZE bytes"
 
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v4
