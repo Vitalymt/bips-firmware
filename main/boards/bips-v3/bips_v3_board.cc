@@ -17,6 +17,7 @@
 #include <esp_netif_sntp.h>
 #include <nvs_flash.h>
 #include <driver/i2c_master.h>
+#include <driver/gpio.h>
 #include <esp_lcd_panel_ops.h>
 #include <esp_lcd_panel_vendor.h>
 #include <cJSON.h>
@@ -70,8 +71,12 @@ private:
         sleep_requested_ = false;
 
         ESP_LOGI(TAG, "Entering light sleep (idle %ds)", idle_seconds_);
-        esp_sleep_enable_ext0_wakeup(GPIO_NUM_43, 1);
+        // ext0 only works for RTC GPIOs (0-21) on ESP32-S3.
+        // GPIO43 (touch button) is not RTC — use gpio_wakeup API instead.
+        gpio_wakeup_enable(GPIO_NUM_43, GPIO_INTR_HIGH_LEVEL);
+        esp_sleep_enable_gpio_wakeup();
         esp_err_t err = esp_light_sleep_start();
+        gpio_wakeup_disable(GPIO_NUM_43);
         ESP_LOGI(TAG, "Woke from light sleep (err=%s)", esp_err_to_name(err));
 
         idle_seconds_ = 0;
