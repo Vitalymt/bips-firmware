@@ -7,16 +7,20 @@
 
 ## 🔴 CRITICAL: OTA JSON Format
 
-**ota.json ДОЛЖЕН содержать ТОЛЬКО секцию firmware:**
+**ota.json ДОЛЖЕН содержать firmware + websocket секции:**
 
 ```json
-{"firmware": {"version": "X.Y.Z", "url": "http://..."}}
+{
+    "server_time": {"timestamp": 1786219600000, "timezone_offset": 180},
+    "firmware": {"version": "X.Y.Z", "url": "http://..."},
+    "websocket": {"url": "wss://api.tenclass.net/xiaozhi/v1/", "token": ""}
+}
 ```
 
-**ЗАПРЕЩЕНО добавлять пустые секции:**
-```json
-❌ {"firmware": {...}, "websocket": {}, "mqtt": {}, "activation": {}}
-```
+**ЗАПРЕЩЕНО:**
+- ❌ Пустые секции `"websocket": {}` — стирает NVS конфиг
+- ❌ Убирать websocket секцию — устройство не может подключиться к серверу
+- ❌ Добавлять mqtt/activation секции — если не знаешь точные значения
 
 **Почему:** устройство парсит ВСЕ секции из ota.json и перезаписывает NVS.
 Пустой `"websocket": {}` стирает сохранённый websocket-конфиг → устройство
@@ -25,14 +29,16 @@
 
 **Проверка перед deploy:**
 ```bash
-# Должна быть РОВНО одна секция — firmware
+# Должны быть РОВНО три секции: server_time, firmware, websocket
 python3 -c "
 import json, sys
 data = json.load(open('/home/openclaw/bips-ota/ota.json'))
-assert set(data.keys()) == {'firmware'}, f'ЛИШНИЕ СЕКЦИИ: {set(data.keys()) - {\"firmware\"}}'
-assert 'version' in data['firmware'], 'Нет version'
-assert 'url' in data['firmware'], 'Нет url'
-print('OK — только firmware секция')
+required = {'server_time', 'firmware', 'websocket'}
+assert set(data.keys()) == required, f'ОШИБКА: ключи {set(data.keys())}, нужны {required}'
+assert 'version' in data['firmware'], 'Нет firmware.version'
+assert 'url' in data['firmware'], 'Нет firmware.url'
+assert data['websocket']['url'].startswith('wss://'), 'websocket.url должен начинаться с wss://'
+print('OK — server_time + firmware + websocket')
 "
 ```
 
