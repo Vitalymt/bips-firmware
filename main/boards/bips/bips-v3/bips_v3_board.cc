@@ -2,6 +2,7 @@
 #include "codecs/no_audio_codec.h"
 #include "display/oled_display.h"
 #include "application.h"
+#include "protocols/protocol.h"
 #include "button.h"
 #include "config.h"
 #include "led/single_led.h"
@@ -48,6 +49,7 @@ private:
     std::atomic<bool> display_off_{false};
     std::atomic<bool> sleep_requested_{false};
     int64_t last_button_press_ms_ = 0;  // Debounce: ignore rapid presses
+    bool just_woke_ = false;  // Skip first button press after light sleep
 
     static void activityTimerCallback(void* arg) {
         auto* self = static_cast<BipsV3*>(arg);
@@ -83,9 +85,12 @@ private:
 
         idle_seconds_ = 0;
         display_off_ = false;
+        just_woke_ = true;  // Skip first button press — it woke us
         if (display_) {
             display_->SetPowerSaveMode(false);
         }
+        // Give WiFi/websocket time to reconnect before accepting input
+        vTaskDelay(pdMS_TO_TICKS(2000));
     }
 
     static void sleepTask(void* arg) {
@@ -200,7 +205,22 @@ private:
             EnterWifiConfigMode();
         });
 
+        // Long press boot = force stop (unstuck from listening)
+        boot_button_.OnLongPress([this]() {
+            ESP_LOGI(TAG, "Boot long-press - force stop");
+            ResetActivity();
+            auto& app = Application::GetInstance();
+            app.AbortSpeaking(kAbortReasonNone);
+        });
+
         touch_button_.OnClick([this]() {
+            // Skip first press after light sleep — it was the wake event
+            if (just_woke_) {
+                just_woke_ = false;
+                ESP_LOGI(TAG, "Touch click ignored (just woke from sleep)");
+                return;
+            }
+
             // Debounce: ignore if less than 2 seconds since last press
             int64_t now_ms = esp_timer_get_time() / 1000;
             if (now_ms - last_button_press_ms_ < 2000) {
