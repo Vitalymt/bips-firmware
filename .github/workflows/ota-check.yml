@@ -1,0 +1,139 @@
+# BIPS OTA Safety Checks
+# Runs on every push/PR to bips-v3 branch
+# Prevents deploying stale or mismatched firmware
+
+name: OTA Safety Check
+
+on:
+  push:
+    branches: [bips-v3]
+  pull_request:
+    branches: [bips-v3]
+
+jobs:
+  # Fast checks: version consistency, tests, no full build
+  quick-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Check CMakeLists.txt version is set
+        run: |
+          VER=$(grep 'PROJECT_VER' CMakeLists.txt | grep -oP '"\K[^"]+')
+          if [ -z "$VER" ]; then
+            echo "::error::No PROJECT_VER found in CMakeLists.txt"
+            exit 1
+          fi
+          echo "firmware_version=$VER" >> $GITHUB_ENV
+          echo "✅ CMakeLists.txt version: $VER"
+
+      - name: Version format check (X.Y.Z)
+        run: |
+          if ! echo "$firmware_version" | grep -qP '^\d+\.\d+\.\d+$'; then
+            echo "::error::Invalid version format: $firmware_version (expected X.Y.Z)"
+            exit 1
+          fi
+          echo "✅ Version format valid: $firmware_version"
+
+      - name: Check SAFETY_RULES.md exists
+        run: |
+          if [ ! -f SAFETY_RULES.md ]; then
+            echo "::error::SAFETY_RULES.md missing — run scripts/pre_ota_check.py before deploy"
+            exit 1
+          fi
+          echo "✅ SAFETY_RULES.md present"
+
+      - name: Check pre_ota_check.py exists
+        run: |
+          if [ ! -f scripts/pre_ota_check.py ]; then
+            echo "::error::scripts/pre_ota_check.py missing"
+            exit 1
+          fi
+          echo "✅ pre_ota_check.py present"
+
+      - name: Check bips-v3 board files exist
+        run: |
+          BOARD="main/boards/bips/bips-v3"
+          for f in bips_v3_board.cc config.h config.json CMakeLists.txt; do
+            if [ ! -f "$BOARD/$f" ]; then
+              echo "::error::Missing board file: $BOARD/$f"
+              exit 1
+            fi
+          done
+          echo "✅ All bips-v3 board files present"
+
+      - name: Validate board config.json
+        run: |
+          python3 -c "
+          import json
+          with open('main/boards/bips/bips-v3/config.json') as f:
+              data = json.load(f)
+          target = data.get('target', '')
+          assert target == 'esp32s3', f'Wrong target: {target}'
+          print(f'✅ config.json target: {target}')
+          "
+
+      - name: Check no forbidden OTA patterns
+        run: |
+          # Ensure no hardcoded stock OTA URLs in source (except references/comments)
+          if grep -r 'api.tenclass.net' main/boards/bips/ --include='*.cc' --include='*.h' -l 2>/dev/null; then
+            echo "::warning::Found api.tenclass.net references in board code — verify these are intentional"
+          fi
+
+  # Full build + binary version verification (heavier, uses espressif Docker)
+  build-verify:
+    runs-on: ubuntu-latest
+    container:
+      image: espressif/idf:v5.4
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build firmware
+        shell: bash
+        run: |
+          . $IDF_PATH/export.sh
+          idf.py build
+        timeout-minutes: 30
+
+      - name: Verify binary magic + chip ID
+        run: |
+          python3 -c "
+          import struct
+          with open('build/xiaozhi.bin', 'rb') as f:
+              header = f.read(24)
+          magic = header[0]
+          chip_id = struct.unpack('<H', header[12:14])[0]
+          assert magic == 0xE9, f'Bad magic: 0x{magic:02x} (expected 0xE9)'
+          assert chip_id == 0x0009, f'Bad chip ID: 0x{chip_id:04x} (expected 0x0009 for ESP32-S3)'
+          print('✅ Binary: magic=0xE9, chip=ESP32-S3')
+          "
+
+      - name: Verify binary version matches CMakeLists.txt
+        run: |
+          CMAKE_VER=$(grep 'PROJECT_VER' CMakeLists.txt | grep -oP '"\K[^"]+')
+          BIN_VER=$(python3 -c "
+          with open('build/xiaozhi.bin', 'rb') as f:
+              f.seek(48)
+              raw = f.read(32).split(b'\x00')[0].decode('ascii')
+              print(raw)
+          ")
+          echo "CMakeLists: $CMAKE_VER"
+          echo "Binary:     $BIN_VER"
+          if [ "$CMAKE_VER" != "$BIN_VER" ]; then
+            echo "::error::VERSION MISMATCH — CMakeLists=$CMAKE_VER, Binary=$BIN_VER"
+            echo "Rebuild with: source ~/esp-idf/export.sh && idf.py build"
+            exit 1
+          fi
+          echo "✅ Version match: $CMAKE_VER"
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bips-firmware-${{ github.sha }}
+          path: build/xiaozhi.bin
+          retention-days: 30
