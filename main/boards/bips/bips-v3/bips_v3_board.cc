@@ -15,7 +15,6 @@
 #include <esp_http_client.h>
 #include <esp_crt_bundle.h>
 #include <esp_netif_sntp.h>
-#include <nvs_flash.h>
 #include <driver/i2c_master.h>
 #include <driver/gpio.h>
 #include <esp_lcd_panel_ops.h>
@@ -42,9 +41,9 @@ private:
     Button boot_button_;
     Button touch_button_;
     esp_timer_handle_t activity_timer_ = nullptr;
-    int idle_seconds_ = 0;
-    bool display_off_ = false;
-    bool sleep_requested_ = false;
+    volatile int idle_seconds_ = 0;
+    volatile bool display_off_ = false;
+    volatile bool sleep_requested_ = false;
     int64_t last_button_press_ms_ = 0;  // Debounce: ignore rapid presses
 
     static void activityTimerCallback(void* arg) {
@@ -193,11 +192,9 @@ private:
         });
 
         boot_button_.OnDoubleClick([this]() {
-            ESP_LOGI(TAG, "Boot double-click - erasing WiFi config and restarting");
-            GetDisplay()->ShowNotification("WiFi Reset...");
-            vTaskDelay(pdMS_TO_TICKS(500));
-            nvs_flash_erase();
-            esp_restart();
+            ESP_LOGI(TAG, "Boot double-click - entering WiFi config mode");
+            ResetActivity();
+            EnterWifiConfigMode();
         });
 
         touch_button_.OnClick([this]() {
