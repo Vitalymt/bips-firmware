@@ -72,7 +72,7 @@ private:
         if (!sleep_requested_) return;
         sleep_requested_ = false;
 
-        ESP_LOGI(TAG, "Entering light sleep (idle %ds)", idle_seconds_);
+        ESP_LOGI(TAG, "Entering light sleep (idle %ds)", idle_seconds_.load());
         // ext0 only works for RTC GPIOs (0-21) on ESP32-S3.
         // GPIO43 (touch button) is not RTC — use gpio_wakeup API instead.
         gpio_wakeup_enable(GPIO_NUM_43, GPIO_INTR_HIGH_LEVEL);
