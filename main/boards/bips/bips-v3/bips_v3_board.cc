@@ -17,6 +17,7 @@
 #include <esp_netif_sntp.h>
 #include <driver/i2c_master.h>
 #include <driver/gpio.h>
+#include <atomic>
 #include <esp_lcd_panel_ops.h>
 #include <esp_lcd_panel_vendor.h>
 #include <cJSON.h>
@@ -40,10 +41,12 @@ private:
     Display* display_ = nullptr;
     Button boot_button_;
     Button touch_button_;
+    Button volume_up_button_;
+    Button volume_down_button_;
     esp_timer_handle_t activity_timer_ = nullptr;
-    volatile int idle_seconds_ = 0;
-    volatile bool display_off_ = false;
-    volatile bool sleep_requested_ = false;
+    std::atomic<int> idle_seconds_{0};
+    std::atomic<bool> display_off_{false};
+    std::atomic<bool> sleep_requested_{false};
     int64_t last_button_press_ms_ = 0;  // Debounce: ignore rapid presses
 
     static void activityTimerCallback(void* arg) {
@@ -114,7 +117,7 @@ private:
 
         // Dedicated task for light sleep — cannot call esp_light_sleep_start()
         // from timer callback because it blocks the timer task
-        xTaskCreate(sleepTask, "sleep_task", 2048, this, 5, nullptr);
+        xTaskCreate(sleepTask, "sleep_task", 3072, this, 5, nullptr);
     }
 
     void InitializeDisplayI2c() {
@@ -214,6 +217,34 @@ private:
             }
             ESP_LOGI(TAG, "Touch click - toggle chat");
             app.ToggleChatState();
+        });
+
+        volume_up_button_.OnClick([this]() {
+            ResetActivity();
+            auto codec = GetAudioCodec();
+            auto volume = codec->output_volume() + 10;
+            if (volume > 100) volume = 100;
+            codec->SetOutputVolume(volume);
+            GetDisplay()->ShowNotification(Lang::Strings::VOLUME + std::to_string(volume));
+        });
+        volume_up_button_.OnLongPress([this]() {
+            ResetActivity();
+            GetAudioCodec()->SetOutputVolume(100);
+            GetDisplay()->ShowNotification(Lang::Strings::MAX_VOLUME);
+        });
+
+        volume_down_button_.OnClick([this]() {
+            ResetActivity();
+            auto codec = GetAudioCodec();
+            auto volume = codec->output_volume() - 10;
+            if (volume < 0) volume = 0;
+            codec->SetOutputVolume(volume);
+            GetDisplay()->ShowNotification(Lang::Strings::VOLUME + std::to_string(volume));
+        });
+        volume_down_button_.OnLongPress([this]() {
+            ResetActivity();
+            GetAudioCodec()->SetOutputVolume(0);
+            GetDisplay()->ShowNotification(Lang::Strings::MUTED);
         });
     }
 
@@ -339,7 +370,9 @@ private:
 public:
     BipsV3() :
         boot_button_(BOOT_BUTTON_GPIO),
-        touch_button_(TOUCH_BUTTON_GPIO, true) {
+        touch_button_(TOUCH_BUTTON_GPIO, true),
+        volume_up_button_(VOLUME_UP_BUTTON_GPIO),
+        volume_down_button_(VOLUME_DOWN_BUTTON_GPIO) {
         InitializeDisplayI2c();
         InitializeDisplay();
         InitializeButtons();
