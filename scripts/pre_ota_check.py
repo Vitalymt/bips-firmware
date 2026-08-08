@@ -51,9 +51,16 @@ if OTA_JSON.exists():
             fw = data["firmware"]
             check("Has firmware.version", "version" in fw)
             check("Has firmware.url", "url" in fw)
-            check("Only 'firmware' section (no websocket/mqtt/activation)",
-                  set(data.keys()) == {"firmware"},
-                  f"extra sections: {set(data.keys()) - {'firmware'}}")
+            required_keys = {"server_time", "firmware", "websocket"}
+            actual_keys = set(data.keys())
+            check("Has required sections (server_time, firmware, websocket)",
+                  actual_keys == required_keys,
+                  f"keys: {actual_keys}, required: {required_keys}")
+            # No empty sections — that erases NVS
+            for key in actual_keys:
+                check(f"Section '{key}' is not empty",
+                      len(data[key]) > 0 if isinstance(data[key], dict) else True,
+                      f"'{key}' is empty — will erase device NVS config!")
     except json.JSONDecodeError as e:
         check("ota.json is valid JSON", False, str(e))
 else:
