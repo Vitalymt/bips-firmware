@@ -210,14 +210,13 @@ void LvglDisplay::UpdateStatusBar(bool update_all) {
         }
     }
 
-    // Update time
-    if (app.GetDeviceState() == kDeviceStateIdle) {
+    // Update time — only show clock after OTA response has set the time
+    if (time_synced_ && app.GetDeviceState() == kDeviceStateIdle) {
         if (last_status_update_time_ + std::chrono::seconds(10) <
             std::chrono::system_clock::now()) {
             // Set status to clock "HH:MM"
             time_t now = time(NULL);
             struct tm* tm = localtime(&now);
-            // Check if the we have already set the time
             if (tm->tm_year >= 2025 - 1900) {
                 char time_str[16];
                 strftime(time_str, sizeof(time_str), "%H:%M", tm);

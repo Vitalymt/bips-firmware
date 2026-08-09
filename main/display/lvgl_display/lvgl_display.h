@@ -31,6 +31,7 @@ public:
     virtual bool AddTextGlyphs(const std::vector<TextGlyph>& glyphs, uint8_t bpp) override;
     virtual void ClearTextGlyphs() override;
     bool SetTextFont(std::shared_ptr<LvglFont> text_font);
+    void SetTimeSynced(bool synced) { time_synced_ = synced; }
 
 protected:
     esp_pm_lock_handle_t pm_lock_ = nullptr;
@@ -51,6 +52,7 @@ protected:
     std::chrono::system_clock::time_point last_status_update_time_;
     esp_timer_handle_t notification_timer_ = nullptr;
     std::unique_ptr<DynamicGlyphCache> dynamic_glyph_cache_;
+    bool time_synced_ = false;  // Hide clock until OTA sets the time
 
     friend class DisplayLockGuard;
     virtual bool Lock(int timeout_ms = 0) = 0;

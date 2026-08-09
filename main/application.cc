@@ -4,6 +4,7 @@
 #include "audio_codec.h"
 #include "board.h"
 #include "display.h"
+#include "lvgl_display/lvgl_display.h"
 #include "mcp_server.h"
 #include "mqtt_protocol.h"
 #include "settings.h"
@@ -320,6 +321,14 @@ void Application::HandleActivationDoneEvent() {
     SetDeviceState(kDeviceStateIdle);
 
     has_server_time_ = ota_->HasServerTime();
+
+    // Tell display that time is synced — hide stale RTC clock until now
+    if (has_server_time_) {
+        auto lvgl_display = dynamic_cast<LvglDisplay*>(Board::GetInstance().GetDisplay());
+        if (lvgl_display) {
+            lvgl_display->SetTimeSynced(true);
+        }
+    }
 
     auto display = Board::GetInstance().GetDisplay();
     std::string message = std::string(Lang::Strings::VERSION) + ota_->GetCurrentVersion();
