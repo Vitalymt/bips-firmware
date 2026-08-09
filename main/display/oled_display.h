@@ -11,6 +11,8 @@ class OledDisplay : public LvglDisplay {
 private:
     esp_lcd_panel_io_handle_t panel_io_ = nullptr;
     esp_lcd_panel_handle_t panel_ = nullptr;
+    bool mirror_x_ = false;
+    bool mirror_y_ = false;
 
     lv_obj_t* top_bar_ = nullptr;
     lv_obj_t* status_bar_ = nullptr;
@@ -37,6 +39,7 @@ public:
     virtual void SetEmotion(const char* emotion) override;
     virtual void SetTheme(Theme* theme) override;
     virtual void SetPowerSaveMode(bool on) override;
+    void Reinit(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_handle_t panel);
 };
 
 #endif // OLED_DISPLAY_H

@@ -21,7 +21,7 @@ LV_FONT_DECLARE(font_noto_emoji_30_1);
 
 OledDisplay::OledDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_handle_t panel,
                          int width, int height, bool mirror_x, bool mirror_y)
-    : panel_io_(panel_io), panel_(panel) {
+    : panel_io_(panel_io), panel_(panel), mirror_x_(mirror_x), mirror_y_(mirror_y) {
     width_ = width;
     height_ = height;
 
@@ -144,6 +144,71 @@ OledDisplay::~OledDisplay() {
 bool OledDisplay::Lock(int timeout_ms) { return lvgl_port_lock(timeout_ms); }
 
 void OledDisplay::Unlock() { lvgl_port_unlock(); }
+
+void OledDisplay::Reinit(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_handle_t panel) {
+    ESP_LOGI(TAG, "Reinitializing OLED display after light sleep");
+    DisplayLockGuard lock(this);
+
+    // 1. Remove old LVGL display (screens/objects survive in LVGL memory)
+    if (display_) {
+        lv_display_delete(display_);
+        display_ = nullptr;
+    }
+
+    // 2. Delete old hardware handles
+    if (panel_) {
+        esp_lcd_panel_del(panel_);
+        panel_ = nullptr;
+    }
+    if (panel_io_) {
+        esp_lcd_panel_io_del(panel_io_);
+        panel_io_ = nullptr;
+    }
+
+    // 3. Store new handles
+    panel_io_ = panel_io;
+    panel_ = panel;
+
+    // 4. Re-register LVGL display with new hardware handles
+    const lvgl_port_display_cfg_t display_cfg = {
+        .io_handle = panel_io_,
+        .panel_handle = panel_,
+        .control_handle = nullptr,
+        .buffer_size = static_cast<uint32_t>(width_ * height_),
+        .double_buffer = false,
+        .trans_size = 0,
+        .hres = static_cast<uint32_t>(width_),
+        .vres = static_cast<uint32_t>(height_),
+        .monochrome = true,
+        .rotation = {
+            .swap_xy = false,
+            .mirror_x = mirror_x_,
+            .mirror_y = mirror_y_,
+        },
+        .flags = {
+            .buff_dma = 1,
+            .buff_spiram = 0,
+            .sw_rotate = 0,
+            .full_refresh = 0,
+            .direct_mode = 0,
+        },
+    };
+
+    display_ = lvgl_port_add_disp(&display_cfg);
+    if (display_ == nullptr) {
+        ESP_LOGE(TAG, "Failed to re-add OLED display after sleep");
+        return;
+    }
+
+    // 5. The default screen with all UI objects is still alive in LVGL memory.
+    //    Tell the new display to render it.
+    lv_screen_load(lv_screen_active());
+
+    // 6. Force a full redraw so all UI elements appear immediately
+    lv_obj_invalidate(lv_screen_active());
+
+    ESP_LOGI(TAG, "OLED display re-initialized successfully");
+}
 
 void OledDisplay::SetChatMessage(const char* role, const char* content) {
     if (!Lock(100)) {

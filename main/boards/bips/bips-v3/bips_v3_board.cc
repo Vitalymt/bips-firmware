@@ -75,22 +75,93 @@ private:
         sleep_requested_ = false;
 
         ESP_LOGI(TAG, "Entering light sleep (idle %ds)", idle_seconds_.load());
-        // ext0 only works for RTC GPIOs (0-21) on ESP32-S3.
-        // GPIO43 (touch button) is not RTC — use gpio_wakeup API instead.
+
+        // 1. Cleanly shut down the display before sleep
+        if (panel_) {
+            esp_lcd_panel_disp_on_off(panel_, false);
+        }
+
+        // 2. Destroy I2C bus to release pins cleanly before sleep
+        if (display_i2c_bus_) {
+            i2c_del_master_bus(display_i2c_bus_);
+            display_i2c_bus_ = nullptr;
+        }
+
+        // 3. Enter light sleep — GPIO43 wakes us
         gpio_wakeup_enable(GPIO_NUM_43, GPIO_INTR_HIGH_LEVEL);
         esp_sleep_enable_gpio_wakeup();
         esp_err_t err = esp_light_sleep_start();
         gpio_wakeup_disable(GPIO_NUM_43);
         ESP_LOGI(TAG, "Woke from light sleep (err=%s)", esp_err_to_name(err));
 
+        // 4. Re-initialize the entire display pipeline
+        ReinitDisplay();
+
+        // 5. Restore display state
         idle_seconds_ = 0;
         display_off_ = false;
-        just_woke_ = true;  // Skip first button press — it woke us
+        just_woke_ = true;
+
+        // 6. Show the UI — ReinitDisplay already loaded the screen
         if (display_) {
             display_->SetPowerSaveMode(false);
         }
-        // Give WiFi/websocket time to reconnect before accepting input
+
+        // 7. Give WiFi/websocket time to reconnect before accepting input
         vTaskDelay(pdMS_TO_TICKS(2000));
+    }
+
+    void ReinitDisplay() {
+        ESP_LOGI(TAG, "Reinitializing I2C + display after light sleep");
+
+        // Re-create I2C bus
+        InitializeDisplayI2c();
+
+        // Re-create panel IO
+        esp_lcd_panel_io_i2c_config_t io_config = {
+            .dev_addr = 0x3C,
+            .scl_speed_hz = 400 * 1000,
+            .control_phase_bytes = 1,
+            .dc_bit_offset = 6,
+            .lcd_cmd_bits = 8,
+            .lcd_param_bits = 8,
+            .on_color_trans_done = nullptr,
+            .user_ctx = nullptr,
+            .flags = {
+                .dc_low_on_data = 0,
+                .disable_control_phase = 0,
+            },
+        };
+        ESP_ERROR_CHECK(esp_lcd_new_panel_io_i2c(display_i2c_bus_, &io_config, &panel_io_));
+
+        // Re-create panel
+        esp_lcd_panel_dev_config_t panel_config = {};
+        panel_config.reset_gpio_num = GPIO_NUM_NC;
+        panel_config.bits_per_pixel = 1;
+
+        esp_lcd_panel_ssd1306_config_t ssd1306_config = {
+            .height = static_cast<uint8_t>(DISPLAY_HEIGHT),
+        };
+        panel_config.vendor_config = &ssd1306_config;
+
+#ifdef SH1106
+        ESP_ERROR_CHECK(esp_lcd_new_panel_sh1106(panel_io_, &panel_config, &panel_));
+#else
+        ESP_ERROR_CHECK(esp_lcd_new_panel_ssd1306(panel_io_, &panel_config, &panel_));
+#endif
+
+        ESP_ERROR_CHECK(esp_lcd_panel_reset(panel_));
+        ESP_ERROR_CHECK(esp_lcd_panel_init(panel_));
+        ESP_ERROR_CHECK(esp_lcd_panel_invert_color(panel_, false));
+        ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel_, true));
+
+        // Update OledDisplay with new handles (keeps LVGL UI objects alive)
+        auto* oled = static_cast<OledDisplay*>(display_);
+        if (oled) {
+            oled->Reinit(panel_io_, panel_);
+        }
+
+        ESP_LOGI(TAG, "Display re-initialized after light sleep");
     }
 
     static void sleepTask(void* arg) {
