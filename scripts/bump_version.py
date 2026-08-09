@@ -20,6 +20,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 CMAKE_FILE = ROOT / "CMakeLists.txt"
 OTA_JSON = Path("/home/openclaw/bips-ota/ota.json")
+OTA_PROXY_CONFIG = Path("/home/openclaw/bips-ota/ota_proxy_config.json")
 
 RED = "\033[91m"
 GREEN = "\033[92m"
