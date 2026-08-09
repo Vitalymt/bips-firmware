@@ -308,11 +308,19 @@ private:
                          now_ms - last_button_press_ms_);
                 return;
             }
+
+            // Ignore touch during speech/listening — speaker vibration causes false triggers on GPIO43
+            auto& app = Application::GetInstance();
+            auto state = app.GetDeviceState();
+            if (state == kDeviceStateSpeaking || state == kDeviceStateListening) {
+                ESP_LOGI(TAG, "Touch click IGNORED (device active, state=%d)", state);
+                return;
+            }
+
             last_button_press_ms_ = now_ms;
 
             ResetActivity();
-            auto& app = Application::GetInstance();
-            if (app.GetDeviceState() == kDeviceStateStarting) {
+            if (state == kDeviceStateStarting) {
                 return;
             }
             ESP_LOGI(TAG, "Touch click - toggle chat");
