@@ -93,6 +93,12 @@ public:
      */
     void ToggleChatState();
 
+    /** Check if activation timed out (touch to retry) */
+    bool IsActivationTimedOut() const { return activation_timed_out_; }
+
+    /** Restart activation after timeout (touch button) */
+    void RestartActivation();
+
     /**
      * Start listening (event-based, thread-safe)
      * Sends MAIN_EVENT_START_LISTENING to be handled in Run()
@@ -143,6 +149,8 @@ private:
 
     bool has_server_time_ = false;
     bool aborted_ = false;
+    bool activation_code_spoken_ = false;  // Only speak activation code once
+    bool activation_timed_out_ = false;    // Activation loop timed out, touch to retry
     bool assets_version_checked_ = false;
     bool play_popup_on_listening_ = false;  // Flag to play popup sound after state changes to listening
     bool pending_listening_start_ = false;  // Waiting for playback to drain before starting listening (auto mode)

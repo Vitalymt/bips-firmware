@@ -315,6 +315,12 @@ private:
             if (app.GetDeviceState() == kDeviceStateStarting) {
                 return;
             }
+            // If activation timed out, restart it instead of toggling chat
+            if (app.IsActivationTimedOut()) {
+                ESP_LOGI(TAG, "Touch click - restart activation");
+                app.RestartActivation();
+                return;
+            }
             ESP_LOGI(TAG, "Touch click - toggle chat");
             app.ToggleChatState();
         });

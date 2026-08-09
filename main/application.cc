@@ -319,6 +319,7 @@ void Application::HandleActivationDoneEvent() {
 
     SystemInfo::PrintHeapStats();
     SetDeviceState(kDeviceStateIdle);
+    activation_timed_out_ = false;  // Clear timeout flag on success
 
     has_server_time_ = ota_->HasServerTime();
 
@@ -344,6 +345,25 @@ void Application::HandleActivationDoneEvent() {
         // Play the success sound to indicate the device is ready
         audio_service_.PlaySound(Lang::Sounds::OGG_SUCCESS);
     });
+}
+
+void Application::RestartActivation() {
+    ESP_LOGI(TAG, "Restarting activation (user requested)");
+    activation_timed_out_ = false;
+    activation_code_spoken_ = false;
+    SetDeviceState(kDeviceStateActivating);
+    if (activation_task_handle_ != nullptr) {
+        ESP_LOGW(TAG, "Activation task already running");
+        return;
+    }
+    xTaskCreate(
+        [](void* arg) {
+            Application* app = static_cast<Application*>(arg);
+            app->ActivationTask();
+            app->activation_task_handle_ = nullptr;
+            vTaskDelete(NULL);
+        },
+        "activation", 4096 * 2, this, 2, &activation_task_handle_);
 }
 
 void Application::ActivationTask() {
@@ -427,9 +447,19 @@ void Application::CheckNewVersion() {
     const int MAX_RETRY = 10;
     int retry_count = 0;
     int retry_delay = 10;  // Initial retry delay in seconds
+    const int64_t ACTIVATION_TIMEOUT_MS = 3 * 60 * 1000;  // 3 minutes total
+    int64_t activation_start_ms = esp_timer_get_time() / 1000;
 
     auto& board = Board::GetInstance();
     while (true) {
+        // Check total activation time — stop after 3 minutes to save battery
+        int64_t elapsed_ms = esp_timer_get_time() / 1000 - activation_start_ms;
+        if (elapsed_ms > ACTIVATION_TIMEOUT_MS) {
+            ESP_LOGW(TAG, "Activation timed out after 3 minutes, going idle");
+            activation_timed_out_ = true;
+            break;
+        }
+
         auto display = board.GetDisplay();
         display->SetStatus(Lang::Strings::CHECKING_NEW_VERSION);
 
@@ -480,7 +510,18 @@ void Application::CheckNewVersion() {
         display->SetStatus(Lang::Strings::ACTIVATION);
         // Activation code is shown to the user and waiting for the user to input
         if (ota_->HasActivationCode()) {
-            ShowActivationCode(ota_->GetActivationCode(), ota_->GetActivationMessage());
+            if (!activation_code_spoken_) {
+                // First time: speak the code aloud
+                ShowActivationCode(ota_->GetActivationCode(), ota_->GetActivationMessage());
+                activation_code_spoken_ = true;
+            } else {
+                // Subsequent cycles: just show on screen, don't repeat voice
+                auto display = Board::GetInstance().GetDisplay();
+                display->SetStatus(Lang::Strings::ACTIVATION);
+                display->SetChatMessage("system",
+                    (std::string(Lang::Strings::ACTIVATION) + ": " + ota_->GetActivationCode()).c_str());
+                ESP_LOGI(TAG, "Activation code (silent): %s", ota_->GetActivationCode().c_str());
+            }
         }
 
         // This will block the loop until the activation is done or timeout
