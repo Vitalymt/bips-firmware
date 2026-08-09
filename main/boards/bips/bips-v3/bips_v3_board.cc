@@ -53,6 +53,15 @@ private:
 
     static void activityTimerCallback(void* arg) {
         auto* self = static_cast<BipsV3*>(arg);
+
+        // Don't count idle time while device is actively in a conversation
+        auto& app = Application::GetInstance();
+        auto state = app.GetDeviceState();
+        if (state != kDeviceStateIdle) {
+            self->idle_seconds_ = 0;
+            return;
+        }
+
         self->idle_seconds_++;
 
         if (self->idle_seconds_ == DISPLAY_OFF_SECONDS && !self->display_off_) {
