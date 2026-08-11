@@ -947,7 +947,7 @@ CONFIG_PARTITION_TABLE_MD5=y
 #
 # Xiaozhi Assistant
 #
-CONFIG_OTA_URL="https://raw.githubusercontent.com/Vitalymt/bips-firmware/bips-v3/ota.json"
+CONFIG_OTA_URL="http://158.160.216.45/bips-ota/ota.json"
 # default:
 # CONFIG_FLASH_NONE_ASSETS is not set
 # default:
