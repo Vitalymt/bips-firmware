@@ -341,6 +341,12 @@ void Application::HandleActivationDoneEvent() {
     auto& board = Board::GetInstance();
     board.SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);
 
+    // Note: if activation timed out, the non-idle timer already set
+    // sleep_requested_ = true during the 3-min timeout period.
+    // When state transitions to idle, EnterLightSleepIfIdle() will
+    // consume that flag and enter sleep within ~500ms.
+    // Touch button wakes from sleep and restarts activation.
+
     Schedule([this]() {
         // Play the success sound to indicate the device is ready
         audio_service_.PlaySound(Lang::Sounds::OGG_SUCCESS);

@@ -33,6 +33,7 @@
 // (which always returns false when wake word engine is running)
 #define DISPLAY_OFF_SECONDS  60
 #define DEEP_SLEEP_SECONDS   300
+#define NON_IDLE_SLEEP_SECONDS 300  // 5 min — auto-sleep during activation / WiFi config
 
 class BipsV3 : public WifiBoard {
 private:
@@ -48,39 +49,64 @@ private:
     std::atomic<int> idle_seconds_{0};
     std::atomic<bool> display_off_{false};
     std::atomic<bool> sleep_requested_{false};
+    std::atomic<int> non_idle_seconds_{0};  // Counts in activation/WiFi-config states
     int64_t last_button_press_ms_ = 0;  // Debounce: ignore rapid presses
     bool just_woke_ = false;  // Skip first button press after light sleep
 
     static void activityTimerCallback(void* arg) {
         auto* self = static_cast<BipsV3*>(arg);
 
-        // Don't count idle time while device is actively in a conversation
         auto& app = Application::GetInstance();
         auto state = app.GetDeviceState();
-        if (state != kDeviceStateIdle) {
-            self->idle_seconds_ = 0;
-            return;
-        }
 
-        self->idle_seconds_++;
+        if (state == kDeviceStateIdle) {
+            // Normal idle path — count toward display-off and deep sleep
+            self->non_idle_seconds_ = 0;
+            self->idle_seconds_++;
 
-        if (self->idle_seconds_ == DISPLAY_OFF_SECONDS && !self->display_off_) {
-            ESP_LOGI(TAG, "Display sleep mode after %ds idle", DISPLAY_OFF_SECONDS);
-            self->display_off_ = true;
-            if (self->display_) {
-                self->display_->SetPowerSaveMode(true);
+            if (self->idle_seconds_ == DISPLAY_OFF_SECONDS && !self->display_off_) {
+                ESP_LOGI(TAG, "Display sleep mode after %ds idle", DISPLAY_OFF_SECONDS);
+                self->display_off_ = true;
+                if (self->display_) {
+                    self->display_->SetPowerSaveMode(true);
+                }
             }
-        }
 
-        if (self->idle_seconds_ >= DEEP_SLEEP_SECONDS && !self->sleep_requested_) {
-            ESP_LOGI(TAG, "Requesting light sleep after %ds idle", DEEP_SLEEP_SECONDS);
-            self->sleep_requested_ = true;
+            if (self->idle_seconds_ >= DEEP_SLEEP_SECONDS && !self->sleep_requested_) {
+                ESP_LOGI(TAG, "Requesting light sleep after %ds idle", DEEP_SLEEP_SECONDS);
+                self->sleep_requested_ = true;
+            }
+        } else if (state == kDeviceStateActivating || state == kDeviceStateWifiConfiguring) {
+            // Non-idle but "waiting" states — user isn't actively chatting
+            // Count toward auto-sleep to prevent battery drain
+            self->idle_seconds_ = 0;
+            self->non_idle_seconds_++;
+
+            if (self->non_idle_seconds_ >= NON_IDLE_SLEEP_SECONDS && !self->sleep_requested_) {
+                ESP_LOGW(TAG, "Non-idle timeout (%ds) in state %d — requesting sleep",
+                         self->non_idle_seconds_.load(), (int)state);
+                self->sleep_requested_ = true;
+            }
+        } else {
+            // Active conversation (listening, speaking, connecting) — reset everything
+            self->idle_seconds_ = 0;
+            self->non_idle_seconds_ = 0;
         }
     }
 
     // Called from dedicated task to enter light sleep safely
     void EnterLightSleepIfIdle() {
         if (!sleep_requested_) return;
+
+        // SAFETY: only enter sleep when device is truly idle.
+        // During activation/WiFi-config the non-idle timer may set
+        // sleep_requested_, but we must wait for the state to
+        // transition to idle before actually sleeping.
+        auto& app = Application::GetInstance();
+        if (app.GetDeviceState() != kDeviceStateIdle) {
+            return;  // Will retry on next tick when state becomes idle
+        }
+
         sleep_requested_ = false;
 
         ESP_LOGI(TAG, "Entering light sleep (idle %ds)", idle_seconds_.load());
@@ -183,6 +209,7 @@ private:
 
     void ResetActivity() {
         idle_seconds_ = 0;
+        non_idle_seconds_ = 0;  // Also reset non-idle timer (activation / WiFi config)
         if (display_off_) {
             ESP_LOGI(TAG, "Wake display");
             display_off_ = false;
