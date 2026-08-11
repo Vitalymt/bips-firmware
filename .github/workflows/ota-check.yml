@@ -24,7 +24,7 @@ jobs:
 
       - name: Check CMakeLists.txt version is set
         run: |
-          VER=$(grep 'PROJECT_VER' CMakeLists.txt | grep -oP '"\K[^"]+')
+          VER=$(grep 'PROJECT_VER' CMakeLists.txt | sed 's/.*"\(.*\)".*/\1/' | tr -d '[:space:]')
           if [ -z "$VER" ]; then
             echo "::error::No PROJECT_VER found in CMakeLists.txt"
             exit 1
@@ -111,7 +111,7 @@ jobs:
 
       - name: Verify binary version matches CMakeLists.txt
         run: |
-          CMAKE_VER=$(grep 'PROJECT_VER' CMakeLists.txt | grep -oP '"\K[^"]+')
+          CMAKE_VER=$(grep 'PROJECT_VER' CMakeLists.txt | sed 's/.*"\(.*\)".*/\1/' | tr -d '[:space:]')
           BIN_VER=$(python3 -c "
           with open('build/xiaozhi.bin', 'rb') as f:
               f.seek(48)
