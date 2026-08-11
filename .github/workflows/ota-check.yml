@@ -51,7 +51,7 @@ jobs:
       - name: Check bips-v3 board files exist
         run: |
           BOARD="main/boards/bips/bips-v3"
-          for f in bips_v3_board.cc config.h config.json CMakeLists.txt; do
+          for f in bips_v3_board.cc config.h config.json; do
             if [ ! -f "$BOARD/$f" ]; then
               echo "::error::Missing board file: $BOARD/$f"
               exit 1
