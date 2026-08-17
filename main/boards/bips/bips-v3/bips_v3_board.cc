@@ -29,11 +29,18 @@
 
 #define TAG "BipsV3"
 
+// === TEST BUILD MARKER ===
+// This firmware includes power-save fixes (2026-08-17)
+// Diagnostic logs prefixed with [PWR] for easy filtering
+#define BUILD_MARKER "BIPS-v4.2.0-POWERFIX-20260817"
+// ==========================
+
 // Activity-based power save — independent of Application::CanEnterSleepMode()
 // (which always returns false when wake word engine is running)
-#define DISPLAY_OFF_SECONDS  60
-#define DEEP_SLEEP_SECONDS   300
-#define NON_IDLE_SLEEP_SECONDS 300  // 5 min — auto-sleep during activation / WiFi config
+#define WAKE_WORD_OFF_SECONDS  1    // Disable AFE wake word after 1s idle (not used by users, saves ~30-60mA)
+#define DISPLAY_OFF_SECONDS    10   // OLED panel off after 10s idle (TEST: was 60s)
+#define LIGHT_SLEEP_SECONDS    60   // Light sleep after 60s idle (TEST: was 300s)
+#define NON_IDLE_SLEEP_SECONDS 60   // 1 min — auto-sleep during activation / WiFi config (TEST: was 300s)
 
 class BipsV3 : public WifiBoard {
 private:
@@ -49,6 +56,7 @@ private:
     std::atomic<int> idle_seconds_{0};
     std::atomic<bool> display_off_{false};
     std::atomic<bool> sleep_requested_{false};
+    std::atomic<bool> wake_word_off_{false};  // AFE wake word disabled for power save
     std::atomic<int> non_idle_seconds_{0};  // Counts in activation/WiFi-config states
     int64_t last_button_press_ms_ = 0;  // Debounce: ignore rapid presses
     bool just_woke_ = false;  // Skip first button press after light sleep
@@ -65,15 +73,15 @@ private:
             self->idle_seconds_++;
 
             if (self->idle_seconds_ == DISPLAY_OFF_SECONDS && !self->display_off_) {
-                ESP_LOGI(TAG, "Display sleep mode after %ds idle", DISPLAY_OFF_SECONDS);
+                ESP_LOGI(TAG, "[PWR] DISPLAY OFF after %ds idle", DISPLAY_OFF_SECONDS);
                 self->display_off_ = true;
                 if (self->display_) {
                     self->display_->SetPowerSaveMode(true);
                 }
             }
 
-            if (self->idle_seconds_ >= DEEP_SLEEP_SECONDS && !self->sleep_requested_) {
-                ESP_LOGI(TAG, "Requesting light sleep after %ds idle", DEEP_SLEEP_SECONDS);
+            if (self->idle_seconds_ >= LIGHT_SLEEP_SECONDS && !self->sleep_requested_) {
+                ESP_LOGI(TAG, "[PWR] SLEEP REQUESTED after %ds idle", self->idle_seconds_.load());
                 self->sleep_requested_ = true;
             }
         } else if (state == kDeviceStateActivating || state == kDeviceStateWifiConfiguring) {
@@ -109,41 +117,52 @@ private:
 
         sleep_requested_ = false;
 
-        ESP_LOGI(TAG, "Entering light sleep (idle %ds)", idle_seconds_.load());
+        ESP_LOGI(TAG, "[PWR] LIGHT SLEEP ENTER (idle %ds)", idle_seconds_.load());
 
-        // 1. Cleanly shut down the display before sleep
+        // 1. Ensure wake word is off (should already be disabled at WAKE_WORD_OFF_SECONDS)
+        if (!wake_word_off_) {
+            auto& audio_service = Application::GetInstance().GetAudioService();
+            if (audio_service.IsWakeWordRunning()) {
+                ESP_LOGI(TAG, "Disabling wake word before light sleep");
+                audio_service.EnableWakeWordDetection(false);
+                wake_word_off_ = true;
+            }
+        }
+
+        // 2. Cleanly shut down the display before sleep
         if (panel_) {
             esp_lcd_panel_disp_on_off(panel_, false);
         }
 
-        // 2. Destroy I2C bus to release pins cleanly before sleep
+        // 3. Destroy I2C bus to release pins cleanly before sleep
         if (display_i2c_bus_) {
             i2c_del_master_bus(display_i2c_bus_);
             display_i2c_bus_ = nullptr;
         }
 
-        // 3. Enter light sleep — GPIO43 wakes us
+        // 4. Enter light sleep — GPIO43 (touch button) wakes us
+        //    NOTE: deep sleep NOT possible — GPIO43 is not an RTC GPIO
         gpio_wakeup_enable(GPIO_NUM_43, GPIO_INTR_HIGH_LEVEL);
         esp_sleep_enable_gpio_wakeup();
         esp_err_t err = esp_light_sleep_start();
         gpio_wakeup_disable(GPIO_NUM_43);
-        ESP_LOGI(TAG, "Woke from light sleep (err=%s)", esp_err_to_name(err));
+        ESP_LOGI(TAG, "[PWR] LIGHT SLEEP EXIT (err=%s)", esp_err_to_name(err));
 
-        // 4. Re-initialize the entire display pipeline
+        // 5. Re-initialize the entire display pipeline
         ReinitDisplay();
 
-        // 5. Restore display state
+        // 6. Restore display state
         idle_seconds_ = 0;
         display_off_ = false;
         just_woke_ = true;
 
-        // 6. Show the UI — ReinitDisplay already loaded the screen
+        // 7. Show the UI — ReinitDisplay already loaded the screen
         if (display_) {
             display_->SetPowerSaveMode(false);
         }
 
-        // 7. Give WiFi/websocket time to reconnect before accepting input
-        vTaskDelay(pdMS_TO_TICKS(2000));
+        // 8. Give WiFi/websocket time to reconnect before accepting input
+        vTaskDelay(pdMS_TO_TICKS(3000));
     }
 
     void ReinitDisplay() {
@@ -167,7 +186,10 @@ private:
                 .disable_control_phase = 0,
             },
         };
-        ESP_ERROR_CHECK(esp_lcd_new_panel_io_i2c(display_i2c_bus_, &io_config, &panel_io_));
+        if (esp_lcd_new_panel_io_i2c(display_i2c_bus_, &io_config, &panel_io_) != ESP_OK) {
+            ESP_LOGE(TAG, "ReinitDisplay: I2C panel IO creation failed");
+            return;
+        }
 
         // Re-create panel
         esp_lcd_panel_dev_config_t panel_config = {};
@@ -180,15 +202,32 @@ private:
         panel_config.vendor_config = &ssd1306_config;
 
 #ifdef SH1106
-        ESP_ERROR_CHECK(esp_lcd_new_panel_sh1106(panel_io_, &panel_config, &panel_));
+        if (esp_lcd_new_panel_sh1106(panel_io_, &panel_config, &panel_) != ESP_OK) {
+            ESP_LOGE(TAG, "ReinitDisplay: SH1106 driver install failed");
+            return;
+        }
 #else
-        ESP_ERROR_CHECK(esp_lcd_new_panel_ssd1306(panel_io_, &panel_config, &panel_));
+        if (esp_lcd_new_panel_ssd1306(panel_io_, &panel_config, &panel_) != ESP_OK) {
+            ESP_LOGE(TAG, "ReinitDisplay: SSD1306 driver install failed");
+            return;
+        }
 #endif
 
-        ESP_ERROR_CHECK(esp_lcd_panel_reset(panel_));
-        ESP_ERROR_CHECK(esp_lcd_panel_init(panel_));
-        ESP_ERROR_CHECK(esp_lcd_panel_invert_color(panel_, false));
-        ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel_, true));
+        if (esp_lcd_panel_reset(panel_) != ESP_OK) {
+            ESP_LOGE(TAG, "ReinitDisplay: reset failed — display may be disconnected");
+            return;
+        }
+        if (esp_lcd_panel_init(panel_) != ESP_OK) {
+            ESP_LOGE(TAG, "ReinitDisplay: init failed");
+            return;
+        }
+        if (esp_lcd_panel_invert_color(panel_, false) != ESP_OK) {
+            ESP_LOGW(TAG, "ReinitDisplay: invert_color failed — continuing");
+        }
+        if (esp_lcd_panel_disp_on_off(panel_, true) != ESP_OK) {
+            ESP_LOGE(TAG, "ReinitDisplay: disp_on_off failed");
+            return;
+        }
 
         // Update OledDisplay with new handles (keeps LVGL UI objects alive)
         auto* oled = static_cast<OledDisplay*>(display_);
@@ -203,6 +242,19 @@ private:
         auto* self = static_cast<BipsV3*>(arg);
         while (true) {
             vTaskDelay(pdMS_TO_TICKS(500));
+
+            // Disable wake word after WAKE_WORD_OFF_SECONDS idle (saves ~30-60mA CPU)
+            // Done here (not in timer callback) because audio service calls need a task context
+            if (self->idle_seconds_ >= WAKE_WORD_OFF_SECONDS && !self->wake_word_off_) {
+                auto& audio_service = Application::GetInstance().GetAudioService();
+                if (audio_service.IsWakeWordRunning()) {
+                    ESP_LOGI(TAG, "[PWR] WAKE WORD OFF after %ds idle (power save)",
+                             self->idle_seconds_.load());
+                    audio_service.EnableWakeWordDetection(false);
+                    self->wake_word_off_ = true;
+                }
+            }
+
             self->EnterLightSleepIfIdle();
         }
     }
@@ -210,8 +262,9 @@ private:
     void ResetActivity() {
         idle_seconds_ = 0;
         non_idle_seconds_ = 0;  // Also reset non-idle timer (activation / WiFi config)
+
         if (display_off_) {
-            ESP_LOGI(TAG, "Wake display");
+            ESP_LOGI(TAG, "[PWR] DISPLAY ON (activity resume)");
             display_off_ = false;
             if (display_) {
                 display_->SetPowerSaveMode(false);
@@ -245,7 +298,10 @@ private:
                 .enable_internal_pullup = 1,
             },
         };
-        ESP_ERROR_CHECK(i2c_new_master_bus(&bus_config, &display_i2c_bus_));
+        if (i2c_new_master_bus(&bus_config, &display_i2c_bus_) != ESP_OK) {
+            ESP_LOGE(TAG, "I2C master bus creation failed — check SDA/SCL pins");
+            return;
+        }
     }
 
     void InitializeDisplay() {
@@ -263,7 +319,11 @@ private:
                 .disable_control_phase = 0,
             },
         };
-        ESP_ERROR_CHECK(esp_lcd_new_panel_io_i2c(display_i2c_bus_, &io_config, &panel_io_));
+        if (esp_lcd_new_panel_io_i2c(display_i2c_bus_, &io_config, &panel_io_) != ESP_OK) {
+            ESP_LOGE(TAG, "Display I2C panel IO creation failed");
+            display_ = new NoDisplay();
+            return;
+        }
 
         esp_lcd_panel_dev_config_t panel_config = {};
         panel_config.reset_gpio_num = GPIO_NUM_NC;
@@ -276,21 +336,39 @@ private:
 
 #ifdef SH1106
         ESP_LOGI(TAG, "Install SH1106 driver");
-        ESP_ERROR_CHECK(esp_lcd_new_panel_sh1106(panel_io_, &panel_config, &panel_));
+        if (esp_lcd_new_panel_sh1106(panel_io_, &panel_config, &panel_) != ESP_OK) {
+            ESP_LOGE(TAG, "SH1106 driver install failed");
+            display_ = new NoDisplay();
+            return;
+        }
 #else
         ESP_LOGI(TAG, "Install SSD1306 driver");
-        ESP_ERROR_CHECK(esp_lcd_new_panel_ssd1306(panel_io_, &panel_config, &panel_));
+        if (esp_lcd_new_panel_ssd1306(panel_io_, &panel_config, &panel_) != ESP_OK) {
+            ESP_LOGE(TAG, "SSD1306 driver install failed");
+            display_ = new NoDisplay();
+            return;
+        }
 #endif
 
-        ESP_ERROR_CHECK(esp_lcd_panel_reset(panel_));
+        if (esp_lcd_panel_reset(panel_) != ESP_OK) {
+            ESP_LOGE(TAG, "Display reset failed — I2C bus may be stuck");
+            display_ = new NoDisplay();
+            return;
+        }
         if (esp_lcd_panel_init(panel_) != ESP_OK) {
             ESP_LOGE(TAG, "Failed to initialize display");
             display_ = new NoDisplay();
             return;
         }
-        ESP_ERROR_CHECK(esp_lcd_panel_invert_color(panel_, false));
+        if (esp_lcd_panel_invert_color(panel_, false) != ESP_OK) {
+            ESP_LOGW(TAG, "Display invert_color failed — continuing anyway");
+        }
         ESP_LOGI(TAG, "Turning display on");
-        ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel_, true));
+        if (esp_lcd_panel_disp_on_off(panel_, true) != ESP_OK) {
+            ESP_LOGE(TAG, "Display disp_on_off failed — I2C bus may be stuck");
+            display_ = new NoDisplay();
+            return;
+        }
 
         display_ = new OledDisplay(panel_io_, panel_, DISPLAY_WIDTH, DISPLAY_HEIGHT, DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y);
     }
@@ -520,6 +598,12 @@ public:
         touch_button_(TOUCH_BUTTON_GPIO, true),
         volume_up_button_(VOLUME_UP_BUTTON_GPIO),
         volume_down_button_(VOLUME_DOWN_BUTTON_GPIO) {
+        ESP_LOGW(TAG, "========================================");
+        ESP_LOGW(TAG, "[PWR] BUILD: %s", BUILD_MARKER);
+        ESP_LOGW(TAG, "[PWR] Power-save fixes ACTIVE");
+        ESP_LOGW(TAG, "[PWR] WW_OFF=%ds DISP_OFF=%ds SLEEP=%ds",
+                 WAKE_WORD_OFF_SECONDS, DISPLAY_OFF_SECONDS, LIGHT_SLEEP_SECONDS);
+        ESP_LOGW(TAG, "========================================");
         InitializeDisplayI2c();
         InitializeDisplay();
         InitializeButtons();

@@ -250,19 +250,30 @@ void OledDisplay::SetPowerSaveMode(bool on) {
         return;
     }
     if (on) {
-        // Sleep mode: hide everything except emotion (sleepy face)
+        // Sleep mode: hide UI, show sleepy face, then turn off OLED panel
         if (top_bar_) lv_obj_add_flag(top_bar_, LV_OBJ_FLAG_HIDDEN);
         if (status_bar_) lv_obj_add_flag(status_bar_, LV_OBJ_FLAG_HIDDEN);
         if (content_right_) lv_obj_add_flag(content_right_, LV_OBJ_FLAG_HIDDEN);
         SetEmotion("sleepy");
+        Unlock();
+        // Let LVGL flush the sleepy face, then power off the panel
+        vTaskDelay(pdMS_TO_TICKS(300));
+        if (panel_) {
+            esp_lcd_panel_disp_on_off(panel_, false);
+            ESP_LOGI(TAG, "OLED panel powered off (power save)");
+        }
     } else {
-        // Wake up: show everything back
+        // Wake up: power on panel first, then show UI
+        if (panel_) {
+            esp_lcd_panel_disp_on_off(panel_, true);
+            ESP_LOGI(TAG, "OLED panel powered on (wake)");
+        }
         if (top_bar_) lv_obj_remove_flag(top_bar_, LV_OBJ_FLAG_HIDDEN);
         if (status_bar_) lv_obj_remove_flag(status_bar_, LV_OBJ_FLAG_HIDDEN);
         if (content_right_) lv_obj_remove_flag(content_right_, LV_OBJ_FLAG_HIDDEN);
         SetEmotion("neutral");
+        Unlock();
     }
-    Unlock();
 }
 
 void OledDisplay::SetupUI_128x64() {
