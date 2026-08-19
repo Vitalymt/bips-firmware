@@ -65,10 +65,23 @@ private:
             self->idle_seconds_++;
 
             if (self->idle_seconds_ == DISPLAY_OFF_SECONDS && !self->display_off_) {
-                ESP_LOGI(TAG, "Display sleep mode after %ds idle", DISPLAY_OFF_SECONDS);
+                ESP_LOGI(TAG, "Display OFF after %ds idle (raw I2C)", DISPLAY_OFF_SECONDS);
                 self->display_off_ = true;
-                if (self->display_) {
-                    self->display_->SetPowerSaveMode(true);
+                // Turn display off via raw I2C command (0xAE)
+                // SetPowerSaveMode(true) on SH1106 corrupts I2C bus because LVGL
+                // keeps rendering to a powered-off display, causing watchdog crash
+                if (self->display_i2c_bus_) {
+                    i2c_device_config_t dev_cfg = {
+                        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+                        .device_address = 0x3C,
+                        .scl_speed_hz = 400000,
+                    };
+                    i2c_master_dev_handle_t dev_handle = nullptr;
+                    if (i2c_master_bus_add_device(self->display_i2c_bus_, &dev_cfg, &dev_handle) == ESP_OK) {
+                        uint8_t cmd[] = {0x00, 0xAE};  // 0x00=command, 0xAE=display off
+                        i2c_master_transmit(dev_handle, cmd, sizeof(cmd), 100);
+                        i2c_master_bus_rm_device(dev_handle);
+                    }
                 }
             }
 
@@ -111,9 +124,21 @@ private:
 
         ESP_LOGI(TAG, "Entering light sleep (idle %ds)", idle_seconds_.load());
 
-        // 1. Cleanly shut down the display before sleep
-        if (panel_) {
-            esp_lcd_panel_disp_on_off(panel_, false);
+        // 1. Turn display off via raw I2C command (0xAE)
+        //    esp_lcd_panel_disp_on_off(false) fails on SH1106 — raw I2C works
+        //    Display draws ~15-30mA when on, ~490µA when off
+        if (display_i2c_bus_) {
+            i2c_device_config_t dev_cfg = {
+                .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+                .device_address = 0x3C,
+                .scl_speed_hz = 400000,
+            };
+            i2c_master_dev_handle_t dev_handle = nullptr;
+            if (i2c_master_bus_add_device(display_i2c_bus_, &dev_cfg, &dev_handle) == ESP_OK) {
+                uint8_t cmd[] = {0x00, 0xAE};  // 0x00=command, 0xAE=display off
+                i2c_master_transmit(dev_handle, cmd, sizeof(cmd), 100);
+                i2c_master_bus_rm_device(dev_handle);
+            }
         }
 
         // 2. Destroy I2C bus to release pins cleanly before sleep
@@ -122,27 +147,34 @@ private:
             display_i2c_bus_ = nullptr;
         }
 
-        // 3. Enter light sleep — GPIO43 wakes us
+        // 3. Configure GPIO43 (touch button) for sleep wakeup
+        //    gpio_sleep_sel_en() isolates ALL GPIOs during sleep.
+        //    We must explicitly set sleep-state for the wakeup pin so it keeps
+        //    pull-down during sleep, otherwise the pin floats and can't trigger.
+        gpio_sleep_set_direction(GPIO_NUM_43, GPIO_MODE_INPUT);
+        gpio_sleep_set_pull_mode(GPIO_NUM_43, GPIO_PULLDOWN_ONLY);
+
+        // 4. Enter light sleep — GPIO43 wakes us
         gpio_wakeup_enable(GPIO_NUM_43, GPIO_INTR_HIGH_LEVEL);
         esp_sleep_enable_gpio_wakeup();
         esp_err_t err = esp_light_sleep_start();
         gpio_wakeup_disable(GPIO_NUM_43);
         ESP_LOGI(TAG, "Woke from light sleep (err=%s)", esp_err_to_name(err));
 
-        // 4. Re-initialize the entire display pipeline
+        // 5. Re-initialize the entire display pipeline
         ReinitDisplay();
 
-        // 5. Restore display state
+        // 6. Restore display state
         idle_seconds_ = 0;
         display_off_ = false;
         just_woke_ = true;
 
-        // 6. Show the UI — ReinitDisplay already loaded the screen
+        // 7. Show the UI — ReinitDisplay already loaded the screen
         if (display_) {
             display_->SetPowerSaveMode(false);
         }
 
-        // 7. Give WiFi/websocket time to reconnect before accepting input
+        // 8. Give WiFi/websocket time to reconnect before accepting input
         vTaskDelay(pdMS_TO_TICKS(2000));
     }
 
@@ -211,10 +243,22 @@ private:
         idle_seconds_ = 0;
         non_idle_seconds_ = 0;  // Also reset non-idle timer (activation / WiFi config)
         if (display_off_) {
-            ESP_LOGI(TAG, "Wake display");
+            ESP_LOGI(TAG, "Wake display (raw I2C)");
             display_off_ = false;
-            if (display_) {
-                display_->SetPowerSaveMode(false);
+            // Turn display on via raw I2C command (0xAF)
+            // Symmetric to the raw I2C 0xAE in activityTimerCallback
+            if (display_i2c_bus_) {
+                i2c_device_config_t dev_cfg = {
+                    .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+                    .device_address = 0x3C,
+                    .scl_speed_hz = 400000,
+                };
+                i2c_master_dev_handle_t dev_handle = nullptr;
+                if (i2c_master_bus_add_device(display_i2c_bus_, &dev_cfg, &dev_handle) == ESP_OK) {
+                    uint8_t cmd[] = {0x00, 0xAF};  // 0x00=command, 0xAF=display on
+                    i2c_master_transmit(dev_handle, cmd, sizeof(cmd), 100);
+                    i2c_master_bus_rm_device(dev_handle);
+                }
             }
         }
     }
